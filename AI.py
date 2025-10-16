@@ -339,7 +339,7 @@ def monomials_xy_masks_upto_deg(nx: int, ny: int, d: int) -> List[Tuple[int, int
                 mask_x |= (1 << i)
             # For each chosen x-weight wx, choose y-weight wy so that wx + wy ≤ d
             for wy in range(0, min(d - wx, ny) + 1):
-                for Y in combinations(range(ny), wy):
+             
                     mask_y = 0
                     for j in Y:
                         mask_y |= (1 << j)
@@ -372,7 +372,7 @@ def sbox_ai_graph(sbox: List[int], max_degree: int = 4) -> Tuple[int, int]:
     for d in range(0, max_degree + 1):
         mons = monomials_xy_masks_upto_deg(nx, ny, d)
         mcols = len(mons)
-        rows = build_rows_graph_annihilator(sbox, mons)
+
         rnk = gf2_rank(rows)
         if rnk < mcols:
             # Nontrivial nullspace exists => graph annihilator(s) of degree ≤ d found
@@ -407,3 +407,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
