@@ -465,81 +465,8 @@ def dap_user_def(S: List[int], n: int, m: int) -> Tuple[float, List[List[int],],
     return dap_ratio, D, chosen
 
 
-def compute_bct_fbct_second_largest(S: List[int], n: int) -> Tuple[int, int]:
-    """
-    Compute BCT and FBCT and return their second-largest values (global).
-    """
-    inv = invert_sbox(S)
-
-    bct = [[0] * (1 << n) for _ in range(1 << n)]
-    for a in range(1 << n):
-        for b in range(1 << n):
-            c = 0
-            for x in range(1 << n):
-                if (inv[S[x] ^ b] ^ inv[S[x ^ a] ^ b]) == a:
-                    c += 1
-            bct[a][b] = c
-
-    fbct = [[0] * (1 << n) for _ in range(1 << n)]
-    for a in range(1 << n):
-        for b in range(1 << n):
-            c = 0
-            for x in range(1 << n):
-                if (S[x] ^ S[x ^ a] ^ S[x ^ b] ^ S[x ^ a ^ b]) == 0:
-                    c += 1
-            fbct[a][b] = c
-
-    def second_largest(table: List[List[int]]) -> int:
-        largest = second = -10**9
-        for row in table:
-            for v in row:
-                if v > largest:
-                    second = largest
-                    largest = v
-                elif largest > v > second:
-                    second = v
-        return second
-
-    return second_largest(bct), second_largest(fbct)
 
 
-def confusion_metrics(S: List[int], n: int) -> Tuple[float, float]:
-    """
-    Confusion-like metrics per your older code:
-      E_k = (1/2^n) Σ_x ((HW(S(x)) - HW(S(x⊕k)))^2)/4
-      MCC = 2nd smallest of {E_k}
-      CCV = Var over E'_k = (1/2^n) Σ_x ((HW(S(x)) - HW(S(x⊕k)))^2)
-    """
-    def hw(x: int) -> int:
-        return x.bit_count()
-
-    E, E1 = [], []
-    for k in range(1, 1 << n):
-        s = s1 = 0.0
-        for x in range(1 << n):
-            d = hw(S[x]) - hw(S[x ^ k])
-            s += (d * d) / 4.0
-            s1 += (d * d)
-        E.append(s / (1 << n))
-        E1.append(s1 / (1 << n))
-    E.sort()
-    mcc = E[1] if len(E) >= 2 else (E[0] if E else 0.0)
-    mu = sum(E1) / len(E1) if E1 else 0.0
-    ccv = sum((v - mu) ** 2 for v in E1) / len(E1) if E1 else 0.0
-    return mcc, ccv
-
-
-def snr_metric(S: List[int], n: int) -> float:
-    """
-    SNR = n * 2^{2n} / sqrt( sum_w ( sum_i W_{f_i}(w) )^4 ).
-    """
-    funcs = boolean_functions_from_sbox(S, n)
-    Wsum = np.zeros(1 << n, dtype=np.int64)
-    for bits in funcs:
-        Wsum += walsh_spectrum(bits, n)
-    denom = int(np.sum((Wsum ** 4)))
-    denom = max(denom, 1)
-    return (n * (1 << (2 * n))) / (denom ** 0.5)
 
 
 # =========================
@@ -684,68 +611,6 @@ def aggregate_metrics(S: List[int], n: int) -> Dict[str, object]:
         "ANF": {"exprs": anf_exprs, "total_and": total_and, "total_xor": total_xor, "AD": ad},
         "BooleanFunctions": {"coords": coords, "bic": [bits for _, bits in bic]},
     }
-
-
-# ===== Overlap-family kept faithful to your original math =====
-def calculate_TO(sbox: List[int], n: int) -> float:
-    """TO = n - (sum_{u!=0} | Σ_i A_fi(u) |) / ((2^n)^2 - 2^n)."""
-    funcs = boolean_functions_from_sbox(sbox, n)
-    Af = np.zeros((1 << n, n), dtype=np.int32)
-    for i, bits in enumerate(funcs):
-        for u in range(1 << n):
-            acc = 0
-            for x in range(1 << n):
-                acc += 1 if (int(bits[x]) ^ int(bits[x ^ u])) == 0 else -1
-            Af[u, i] = acc
-    comb_abs = [abs(np.sum(Af[u, :])) for u in range(1 << n)]
-    num = sum(comb_abs[1:])  # exclude u=0
-    denom = (1 << (2 * n)) - (1 << n)
-    return n - (num / denom)
-
-
-def calculate_MTO(sbox: List[int], n: int) -> float:
-    """MTO as in your original code."""
-    funcs = boolean_functions_from_sbox(sbox, n)
-    Af = np.zeros((n, n, 1 << n), dtype=np.int32)
-    for i in range(n):
-        for j in range(n):
-            bi = funcs[i]
-            bj = funcs[j]
-            for u in range(1 << n):
-                acc = 0
-                for x in range(1 << n):
-                    acc += 1 if (int(bi[x]) ^ int(bj[x ^ u])) == 0 else -1
-                Af[i, j, u] = acc
-
-    sums = []
-    for u in range(1, 1 << n):
-        for j in range(n):
-            sums.append(int(np.sum(Af[:, j, u])))
-    final_sum = sum(abs(v) for v in sums)
-    denom = (1 << (2 * n)) - (1 << n)
-    return n - (final_sum / denom)
-
-
-def calculate_RTO(sbox: List[int], n: int) -> float:
-    """RTO as in your original code."""
-    funcs = boolean_functions_from_sbox(sbox, n)
-    Af = np.zeros((n, n, 1 << n), dtype=np.int32)
-    for i in range(n):
-        for j in range(n):
-            bi = funcs[i]
-            bj = funcs[j]
-            for u in range(1 << n):
-                acc = 0
-                for x in range(1 << n):
-                    acc += 1 if (int(bi[x]) ^ int(bj[x ^ u])) == 0 else -1
-                Af[i, j, u] = acc
-
-    sums_u = []
-    for u in range(1, 1 << n):
-        sums_u.append(int(np.sum(Af[:, :, u])))
-    final_sum = sum(abs(v) for v in sums_u)
-    denom = (1 << (2 * n)) - (1 << n)
-    return n - (final_sum / denom)
 
 
 # =========================
@@ -1013,3 +878,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
