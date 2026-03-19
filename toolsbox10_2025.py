@@ -2,13 +2,13 @@ import math
 import numpy as np
 
 # =========================================================
-# Chỉ cần sửa SBOX ở đây
+# Only edit SBOX here
 # =========================================================
-SBOX = [1, 9, 15, 13, 14, 11, 10, 5, 6, 12, 4, 0, 2, 8, 3, 7]
+SBOX =[12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2]
 
 
 # =========================================================
-# Hàm cơ bản
+# Basic helpers
 # =========================================================
 def is_power_of_two(x):
     return x > 0 and (x & (x - 1)) == 0
@@ -17,10 +17,10 @@ def is_power_of_two(x):
 def infer_n(sbox):
     L = len(sbox)
     if not is_power_of_two(L):
-        raise ValueError("Độ dài SBOX phải là 2^n.")
+        raise ValueError("SBOX length must be 2^n.")
     n = int(math.log2(L))
     if min(sbox) < 0 or max(sbox) >= (1 << n):
-        raise ValueError("Giá trị trong SBOX không nằm trong [0, 2^n - 1].")
+        raise ValueError("SBOX values must be in [0, 2^n - 1].")
     return n
 
 
@@ -33,8 +33,8 @@ def format_sbox_hex(sbox):
 
 def boolean_functions_from_sbox(sbox, n):
     """
-    f0 là bit LSB, f1 là bit tiếp theo, ...
-    Mỗi hàm là chuỗi bit ứng với x = 0..2^n-1
+    f0 is the LSB coordinate, f1 the next bit, and so on.
+    Each function is a bitstring for x = 0..2^n-1.
     """
     funcs = []
     for bit in range(n):
@@ -47,7 +47,7 @@ def boolean_functions_from_sbox(sbox, n):
 # Nonlinearity
 # =========================================================
 def fwht(arr):
-    """Fast Walsh-Hadamard Transform"""
+    """Fast Walsh-Hadamard Transform."""
     a = arr.astype(np.int32).copy()
     h = 1
     while h < len(a):
@@ -61,8 +61,9 @@ def fwht(arr):
 
 
 def nonlinearity_bool(bits):
+    """Return the nonlinearity of one Boolean function."""
     n = int(math.log2(len(bits)))
-    seq = np.array([1 - 2 * int(b) for b in bits], dtype=np.int32)  # 0->1, 1->-1
+    seq = np.array([1 - 2 * int(b) for b in bits], dtype=np.int32)
     W = fwht(seq)
     return (1 << (n - 1)) - (np.max(np.abs(W)) // 2)
 
@@ -72,7 +73,7 @@ def nonlinearity_bool(bits):
 # =========================================================
 def sac_vector(bits, n):
     """
-    SAC theo từng bit vào:
+    SAC per input bit:
     SAC[i] = P(f(x) != f(x xor e_i))
     """
     f = np.array([int(b) for b in bits], dtype=np.int8)
@@ -135,7 +136,7 @@ def parity(x):
 
 def lat(sbox, n):
     """
-    LAT dạng bias:
+    LAT in bias form:
     LAT[a][b] = #{x | a·x xor b·S(x)=0} - 2^(n-1)
     """
     L = [[0] * (1 << n) for _ in range(1 << n)]
@@ -181,25 +182,23 @@ def fixed_and_opposite_fixed_points(sbox, n):
 
 
 # =========================================================
-# ANF bằng Möbius transform
+# ANF via Möbius transform
 # =========================================================
 def anf_of_bits(bits, n):
     """
-    Trả về ANF của 1 hàm Boolean.
-    Biến in ra theo thứ tự x(n-1), ..., x0
+    Return the ANF of one Boolean function.
+    Variables are displayed as x(n-1), ..., x0.
+    XOR is displayed as ⊕.
     """
     a = np.array([int(b) for b in bits], dtype=np.int8)
 
-    # Möbius transform
     for i in range(n):
         step = 1 << i
         for mask in range(1 << n):
             if mask & step:
                 a[mask] ^= a[mask ^ step]
 
-    vars_name = [f"x{i}" for i in range(n - 1, -1, -1)]
     terms = []
-
     for mask, coef in enumerate(a):
         if coef == 0:
             continue
@@ -212,31 +211,29 @@ def anf_of_bits(bits, n):
                     monomial.append(f"x{i}")
             terms.append("(" + " & ".join(monomial) + ")")
 
-    return " ^ ".join(terms) if terms else "0"
+    return " ⊕ ".join(terms) if terms else "0"
 
 
 # =========================================================
-# MAIN
+# Main
 # =========================================================
 def main():
     n = infer_n(SBOX)
     funcs = boolean_functions_from_sbox(SBOX, n)
 
     print("====================================================")
-    print("        SIMPLE S-BOX ANALYSIS")
+    print("              SIMPLE S-BOX ANALYSIS")
     print("====================================================")
     print(f"n = {n}")
     print("SBOX (hex):")
     print(format_sbox_hex(SBOX))
     print()
 
-    # FP / OFP
     fp, ofp = fixed_and_opposite_fixed_points(SBOX, n)
-    print("FP  =", fp)
-    print("OFP =", ofp)
+    print(f"FP  = {fp}")
+    print(f"OFP = {ofp}")
     print()
 
-    # NL + SAC + ANF cho từng hàm tọa độ
     print("=============== COORDINATE FUNCTIONS ===============")
     nl_list = []
     sac_avg_list = []
@@ -245,24 +242,26 @@ def main():
         nl = int(nonlinearity_bool(bits))
         sac_vec = sac_vector(bits, n)
         sac_avg = sum(sac_vec) / n
-        anf = anf_of_bits(bits, n)
 
         nl_list.append(nl)
         sac_avg_list.append(sac_avg)
 
         print(f"f{i}(x) = {bits}")
-        print(f"  NL      = {nl}")
-        print(f"  SAC     = {[round(v, 4) for v in sac_vec]}")
-        print(f"  SAC_avg = {sac_avg:.4f}")
-        print(f"  ANF     = {anf}")
-        print()
+        print(f"NL      = {nl}")
+        print(f"SAC     = {[round(v, 4) for v in sac_vec]}")
+        print(f"SAC_avg = {sac_avg:.4f}")
 
-    print("Average NL      =", sum(nl_list) / len(nl_list))
-    print("Average SAC     =", sum(sac_avg_list) / len(sac_avg_list))
+    print()
+    print("ANF:")
+    for i, bits in enumerate(funcs):
+        print(f"f{i}(x) = {anf_of_bits(bits, n)}")
+
+    print()
+    print(f"Average NL  = {sum(nl_list) / len(nl_list):.4f}")
+    print(f"Average SAC = {sum(sac_avg_list) / len(sac_avg_list):.4f}")
     print()
 
-    # BIC-SAC
-    print("=================== BIC - SAC ======================")
+    print("=================== BIC-SAC ========================")
     bic = bic_functions(funcs)
     bic_avg_all = []
 
@@ -270,18 +269,16 @@ def main():
         sac_vec = sac_vector(bits, n)
         sac_avg = sum(sac_vec) / n
         bic_avg_all.append(sac_avg)
-        print(f"f{i} ^ f{j}: SAC = {[round(v, 4) for v in sac_vec]}, SAC_avg = {sac_avg:.4f}")
+        print(f"f{i} xor f{j}: SAC = {[round(v, 4) for v in sac_vec]}, SAC_avg = {sac_avg:.4f}")
 
-    print("BIC-SAC average =", sum(bic_avg_all) / len(bic_avg_all))
+    print(f"BIC-SAC average = {sum(bic_avg_all) / len(bic_avg_all):.4f}")
     print()
 
-    # DP
     dp, dp_count, dp_pair = differential_probability(SBOX, n)
     print("====================== DP ==========================")
     print(f"DP = {dp:.6f}   (max DDT = {dp_count}, at a={dp_pair[0]}, b={dp_pair[1]})")
     print()
 
-    # LP
     lp, lp_bias, lp_pair = linear_probability(SBOX, n)
     print("====================== LP ==========================")
     print(f"LP = {lp:.6f}   (max |LAT| = {lp_bias}, at a={lp_pair[0]}, b={lp_pair[1]})")
